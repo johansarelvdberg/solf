@@ -1,0 +1,9 @@
+grammar com.github.johasarelvdberg.sofl.SoflDsl with org.eclipse.xtext.common.Terminals
+
+generate soflDsl "http://www.github.com/johasarelvdberg/sofl/SoflDsl"
+
+Model:
+	greetings+=Greeting*;
+	
+Greeting:
+	'Hello' name=ID '!';
