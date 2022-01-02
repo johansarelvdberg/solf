@@ -2,8 +2,464 @@ grammar com.github.johasarelvdberg.sofl.SoflDsl with org.eclipse.xtext.common.Te
 
 generate soflDsl "http://www.github.com/johasarelvdberg/sofl/SoflDsl"
 
-Model:
-	greetings+=Greeting*;
+SoflModelList:
+	modules+=SoflModule+;
+
+SoflModule:
+	'module' name=ID ('/' parent=[SoflModule])?
+	(comment = Comment)?
+	('const' const_list+=Constant (";" const_list+=Constant)*)?
+	('type' (types+=NewType | extends+=ExtendType) (';' (types+=NewType | extends+=ExtendType))*)?
+	('var'
+	((vars+=NewVariable) (';' vars+=NewVariable)*)
+	('ext' extVars+=ExternalVariable (';' extVars+=ExternalVariable)*)?)?
+	('inv' invariants+=RootExpression (';' invariants+=RootExpression)*)?
+	cdfd=SoflBehaviour
+	(init=SoflInitProcess)?
+	proc_spec+=(SoflProcess)*
+	func_spec+=(SoflFunction)*
+	predicates += (SoflRuntimePredicate)*
+	'end_module';
+
+InvariantDecl:
+	'inv' nvariant+=RootExpression (';' invariant+=RootExpression)*;
+
+SoflGrouping:
+	'grouping' '(' in_grouping=DataFlowReference ')' out_grouping=DataFlowReference;
+
+SoflAdding:
+	{SoflAdding} 'added' '(' ((in_added=PortDeclarations) | 'void') ')' (out_added=PortDeclarations | 'void');
+
+SoflBehaviour:
+	'behaviour' name=ID '(' in_ports=BahaviourDataFlows ')' out_ports=BahaviourDataFlows
+	'state_condition' state_transition_list+=StateCondition (','state_transition_list+=StateCondition)*
+	(conditions+=ConditionStructure |
+	broadcasts+=BroadcastStructure |
+	merge+=MergeStructure |
+	ummerge+=UnMergeStructure)*
+	(flow+=Flow | shadow_flow+=ShaddowFlow)*
+	(comments = Comment)?
+	'end_behaviour';
+
+Flow:
+	'flow' (
+		=>source=FlowNode| 
+		=>('source' (const=[Constant] | =>exp=RootExpression))
+	) '=>' (io=FlowComm?)  destination=FlowNode;
+
+FlowNode:
+	  ( behaviour?='behaviour' | node=NodeName) '.' variable_name=[SoflVariableName] 
+;
+
+FlowComm: 
+	(
+		(env_get?='get' =>  destination=FlowNode) | 
+		(env_put+='put' '('var=[SoflVariableName]')')
+	) ('.'next=FlowComm)?
+;
+
+
+
+ShaddowFlow:
+	'shadow_flow' source=ShaddowFlowSourceNode '=>' destination=ShaddowFlowDestinationNode;
+
+ShaddowFlowSourceNode:
+	node=NodeName '.' connected_name=[ConnectionName];
+
+ShaddowFlowDestinationNode:
+	node=NodeName '.' connected_name=[ConnectionName];
+
+Constant:
+	name=SoflVariableName '=' expression=RootExpression;
+
+NewType:
+	type_id=TypeIdentifier '=' type=SoflType;
+
+NewVariable:
+	name_list+=SoflVariableName (',' name_list+=SoflVariableName)* ':' type=SoflType;
+
+ExternalVariable:
+	((rd?='rd' | wr?='wr')
+	((=> variable_name=[SoflVariableName]) |
+	(is_ext?='#' ext_variable_name=SoflVariableName ':' type=SoflType)));
+
+	/*ProcessExternalVariable:
+	'ext' ext_variables+=ProcessVariable+;*/
+ProcessVariable:
+	(rd?='rd' | wr?='wr') varariable_name=[SoflVariableName] (have_lock?='guarded')?;
+
+BroadcastStructure:
+	'broadcast' name=ID
+	'(' ((in_variable=SoflVariableName ')'
+	out_list+=SoflVariableName (',' out_list+=SoflVariableName)*) | (in_connect=ConnectionName ')'
+	out_connect+=ConnectionName (',' out_connect+=ConnectionName)*))
+	'end_broadcast';
+
+CondOption:
+	varname=SoflVariableName ':' pred=RootExpression;
+
+ConditionStructure:
+	'condition' name=ID
+	('(' in_variable=SoflVariableName ')'
+	out_list+=CondOption (',' out_list+=CondOption)*)
+	'end_condition';
+
+MergeStructure:
+	'merge' name=ID
+	('(' invar+=SoflVariableName (',' invar+=SoflVariableName)* ')'
+	out=SoflVariableName)
+	'end_merge';
+ 
+UnMergeStructure:
+	'unmerge' name=ID
+	('(' in_variable=SoflVariableName ')'
+	out_list+=SoflVariableName (',' out_list+=SoflVariableName)*)
+	'end_unmerge';
+
+
+Channel:
+	'channel' name=ID 'message:{' vars+=VariableDeclare  (','vars+=VariableDeclare)*'}'
+;
+
+NodeName:
+	is_behavior?=  'cond' cond=[ConditionStructure] |
+	'proc' proc=[SoflProcess] | 'cast' broadcast=[BroadcastStructure] |
+	'merge' merge=[MergeStructure] | 'unmerge' unmerge=[UnMergeStructure];
+
+GeneralNodeName:
+	SoflProcess | BroadcastStructure|MergeStructure|UnMergeStructure|ConditionStructure
+;
+
+SoflInitProcess:
+	{SoflInitProcess} 'process' 'Init' '(' ')'
+	(inv_list+=RootExpression (';' inv_list+=RootExpression)*)?
+	(comment=Comment)?
+	'end_process';
+
+SoflProcess:
+	'process' name=ID '(' in_ports=DataFlows ')' out_ports=DataFlows
+	(=>time_interval=SoflProcessTimeConstrain)?
+	(=>time_elapse=TimeElapse)?
+	('channels' channels+=Channel(';'channels+=Channel)*)?
+	('ext' ext_variables+=ProcessVariable+)?
+	'state_condition' state_transition_list+=StateCondition (','state_transition_list+=StateCondition)*
+	('decomposition' decomposing_module=[SoflModule])?
+	(comment=Comment)?
+	'end_process';
+
+PortDeclarations:
+	(
+		declare+=VariableDeclare | connections+=ConnectionName
+	)
+	(
+		(',' 
+			declare+=VariableDeclare | connections+=ConnectionName
+		)*
+	);
 	
-Greeting:
-	'Hello' name=ID '!';
+TimeElapse:
+	'time_elapsed' time=SoflNumber
+;	
+
+SoflProcessTimeConstrain:
+	'interval' 
+		->((begin_start=TimedAddition '<')? 'start' ('<' end_start=TimedAddition |'infinity')? ',')? 
+		((begin_end=TimedAddition 	'<')? 'end'	('<' end_end=TimedAddition| 'infinity' )?)?	
+;
+
+
+DataFlows:
+	(ports+=PortDeclarations) (('|' ports+=PortDeclarations)*);
+
+BehaviourPortDeclarations:
+	port=PortDeclarations (extend_port?='+' (is_void?='void' | added+=PortDeclarations) (':' added+=PortDeclarations)*)?;
+
+BahaviourDataFlows:
+	ports+=BehaviourPortDeclarations ('|' ports+=BehaviourPortDeclarations)*;
+
+DataFlowReference:
+	(ports+=PortReference ('|' ports+=PortReference)*);
+
+PortReference:
+	(vars+=[SoflVariableName] |
+	'connection' connections+=[ConnectionName]) (','
+	(vars+=[SoflVariableName] |
+	'connection' connections+=[ConnectionName]))*;
+
+
+SoflType:
+	left=TypeLower => ('*' right_product+=TypeLower)*
+;
+
+TypeLower:
+	type_id=[TypeIdentifier]
+	| basic=BasicType;
+
+TypeIdentifier:
+	name=ID;
+
+BasicType:
+	is_nat0?='nat0'
+	| is_nat?='nat'
+	| is_int?='int'
+	| is_real?='real'
+	| is_char?='char'
+	| is_bool?='bool'
+	| is_void?='void' //ADDED
+	| is_string?='string' //ADDED
+	| enumerate=Enumeration
+	| composed=ComposedType
+	| sequence=SequnceType
+	| set=SetType
+	| union = UnionType
+	| map=MapType;
+
+UnionType:
+	'union' '{' unions += SoflType ('|' unions += SoflType)+ '}'
+;
+
+
+
+ExtendType:
+	'extends' parent=[TypeIdentifier] 'with' (composed=ComposedType | enumerate=Enumeration)
+; 
+
+MapType:
+	'map' domain_type=SoflType 'to' range_type=SoflType;
+
+SetType:
+	'set' 'of' type=SoflType;
+
+SequnceType:
+	'seq' 'of' type=SoflType;
+
+ComposedType:
+	'composed' 'of' (parent=[TypeIdentifier] 'and')?
+	(element_list+=ComposedElement+)
+	'end';
+
+ComposedElement:
+	name=ID ':' =>type=SoflType;
+
+Enumeration:
+	'{' enum_values+=EnumerateValue (',' enum_values+=EnumerateValue)* '}';
+
+EnumerateValue:
+	'<' name=ID '>';
+
+RootExpression returns Expression:
+	ExpressionAnd
+	-> ({ExpOr.left=current} 'or' right=ExpressionAnd)*;
+
+ExpressionAnd returns Expression:
+	ExpressionImply
+	-> ({ExpAnd.left=current} 'and' right=ExpressionImply)*;
+
+ExpressionImply returns Expression:
+	ExpressionOrderEql
+	-> (({ExpImply.left=current} '=>' | {ExpEquiv.left=current} '<=>')
+	right=ExpressionOrderEql)*;
+
+ExpressionOrderEql returns Expression:
+	ExpressionOrderIneq
+	-> (({ExpEq.left=current} '=' | {ExpNeq.left=current} '<>') right=ExpressionOrderIneq)*;
+
+ExpressionOrderIneq returns Expression:
+	ExpressionArth
+	-> (-> ({ExpInSet.left=current} 'inset' | {ExpNotIn.left=current} 'notin' |
+	{ExpLess.left=current} '<' | {ExpGrt.left=current} '>' | {ExpLessEq.left=current} '<=' |
+	{ExpGrtEq.left=current} '>=')
+	right=ExpressionArth)*;
+
+ExpressionArth returns Expression:
+	ExpressionScopeModify
+	-> (({ExpAdd.left=current} '+' | {ExpMinus.left=current} '-' | {ExpMult.left=current} '*' |
+	{ExpPower.left=current} '**' | {ExpDiv.left=current} '/' | {ExpIntDiv.left=current} 'div'
+	| {ExpRemainder.left=current} 'rem' | {ExpMod.left=current} 'mod')
+	right=ExpressionScopeModify)*;
+
+VariableDeclare:
+	identifier+=SoflVariableName (',' identifier+=SoflVariableName)* ':' type=SoflType;
+
+VariableDeclareList:
+	list+=VariableDeclare (',' list+=VariableDeclare)*;
+
+ConnectionName:
+	'connect' name=ID;
+
+PatternDefinition:
+	vars=SoflVariableName (('=' expression=RootExpression) |
+	(':' (type=SoflType '|' expression=RootExpression)));
+
+DomainBinding:
+	variables+=SoflVariableName (',' variables+=SoflVariableName)* ':' type=SoflType;
+
+ExpressionScopeModify returns Expression:
+	ExpressionTerm |
+	({ExpScopeModify} (((is_let?='let' pattern_list+=PatternDefinition (',' pattern_list+=PatternDefinition)* 'in'
+	expression=RootExpression)
+	| (is_if?='if' cond_expression=RootExpression 'then' then_expression=RootExpression 'else'
+	else_expression=RootExpression)) | (((is_forall?='forall' | is_exists?='exists' (bang?='!')?) '['
+	bindings+=DomainBinding (',' bindings+=DomainBinding)* '|' expression=RootExpression ']')
+	| (is_square?='['
+	(-> exp=RootExpression
+	(((',' exp_list+=RootExpression)*) |
+	(is_range?=',...,' last=RootExpression) |
+	(is_compress?='|' var_list+=NewVariable (',' var_list+=NewVariable) '&' predicate=RootExpression)))? ']'
+	/*('as' list_type=SoflType)?*/)
+	| => (is_curly?='{' (-> (=> map_seq=MapSequnce) |
+	-> (=> set_compress=CompressionExpression) |
+	-> (=> expression_seq=ExpressionSequence) |
+	-> (is_empty_map?='->')) '}')
+	| (=> ((is_un_mod?='~')? variable=[SoflVariableName] /* =>('('arguments=ExpressionSequence')')?*/))
+	| => (function_apply=PreDefinedFunctions)
+	| (is_grouping?='(' expression=RootExpression ')')
+	| (is_case?='case' case_expression=CaseExpression 'end_case')
+	| (=> (is_negative?='-' '(' expression=RootExpression ')'))) modifiers+=FunctionReferenceModifiers*));
+
+ExpressionTerm returns Expression:
+	=> ({ExpEnum} '<' enumerate=[EnumerateValue] '>')
+	| ({ExpString} string=STRING)
+	//| =>({ExpNeg}'-'expression=RootExpression)
+	| ({ExpBool} (is_true?='true' | is_false?='false'))
+	| ('not' {ExpNot} expression=RootExpression)
+	| ('changed' '('store=[SoflVariableName]')')	//added
+	| ('unchanged' '('store=[SoflVariableName]')') //added
+	| => ({ExpNumber} number=SoflNumber);
+
+CaseExpression:
+	test=RootExpression 'of'
+	(case_item+=CaseAlternative (';' case_item+=CaseAlternative)*)
+	(';' 'default' '->' expression=RootExpression)?;
+
+CaseAlternative:
+	pattern+=RootExpression
+	(',' pattern+=RootExpression)* '->' result=RootExpression;
+
+ExpressionSequence:
+	exp_list+=RootExpression (',' exp_list+=RootExpression)*;
+
+CompressionExpression:
+	results=RootExpression '|' new_var=VariableDeclareList '&' predicate=RootExpression;
+
+MapSequnce:
+	list+=MapElement (',' list+=MapElement)*;
+
+MapElement:
+	=> src=RootExpression '->' => dest=RootExpression;
+
+SoflNumber:
+	(is_negative?='-'?) number=Digits ('.' fraction=Digits)?;
+
+Digits:
+	INT+;
+
+ParamSingleTypeDecl:
+	list+=SoflVariableName (',' list+=SoflVariableName)* ':' type=SoflType;
+
+ParamDecl:
+	list+=ParamSingleTypeDecl (',' list+=ParamSingleTypeDecl)*;
+
+SoflVariableName:
+	name=ID;
+
+SoflFunction:
+	'function' name=SoflVariableName '(' in_ports=PortDeclarations ')' ret_var=SoflVariableName ':' ret_type=SoflType
+	('parent_ref' ref_name=ID)?
+	pre=PreCondition
+	post=PostCondition
+	('===' body=RootExpression)?
+	'end_function';
+
+SoflRuntimePredicate:
+	'predicate' name=SoflVariableName '(' (declare+=VariableDeclare) ((',' (declare+=VariableDeclare))*)')' ;
+
+
+PreCondition:
+	'pre' condition=RootExpression;
+
+PostCondition:
+	'post' condition=RootExpression;
+
+StateCondition:
+	 'in' in_port_id=INT 'out' out_port_id=INT pre=PreCondition post=PostCondition ('dynamic' dynamic=RootExpression)?
+;
+
+
+PreDefinedFunctions:
+	((is_card?='card' |
+	is_dom?='dom' |
+	is_rng?='rng' |
+	is_subset?='subset' |
+	is_psubset?='psubset' |
+	is_len?='len' |
+	is_union?='union' |
+	is_inter?='inter' |
+	is_dinter?='dinter' |
+	is_dunion?='dunion' |
+	is_mk?='mk_' type=[TypeIdentifier] |
+	is_override?='override' |
+	is_domrb?='domrb' |
+	is_diff?='diff' |
+	is_get?='get' |
+	is_comp?='comp' |
+	is_power?='power' |
+	is_cons?='conc' |
+	is_dcons?='dconc' |
+	is_hd?='hd' |
+	is_tl?='tl' |
+	is_domrt?='domrt' |
+	is_rngrt?='rngrt' |
+	is_rngrb?='rngrb' |
+	is_domdl?='domdl' |
+	is_floor?='floor' |
+	is_bound?='bound' |
+	is_elems?='elems' |
+	is_inds?='inds' |
+	is_inverse?='inverse' |
+	is_type?='is_' type_identifier=[TypeIdentifier] |
+	is_abs?='abs') '(' args=ExpressionSequence ')') | (is_modify?='modify' '(' first=RootExpression ','
+	arg_mod=ArgumentsModify ')');
+
+ArgumentsModify:
+	list+=ArgumentsModifyItem (',' list+=ArgumentsModifyItem)*;
+
+FunctionReferenceModifiers:
+	is_arugment?='(' arg=ExpressionSequence ')' |
+	=> is_member?='.' (member=[ComposedElement] | =>number_access=SoflNumber);
+
+ArgumentsModifyItem:
+	-> (-> comp_src=[ComposedElement] |
+	-> val_src=RootExpression) '->' dest=RootExpression;
+
+ModuleBehaviour:
+	SoflModule | SoflBehaviour;
+	
+
+TimedAddition returns TimedExpression:
+  TimedMultiplication ({TimedAddition.left=current} op=('+'|'-') right=TimedMultiplication)?;
+  
+TimedMultiplication returns TimedExpression:
+  TimedMessage ({TimedMultiplication.left=current} op=('*'|'div') right=TimedMessage)?;
+  
+  
+TimedMessage returns TimedExpression:
+	{TimedMessage}('('expr=TimedAddition')')|
+	SoflNumber |
+	{TimedMessage}(
+		(is_start?='start(' | is_end?= 'end(')
+		proc=[SoflProcess]
+	')');
+
+Requirements:
+	'('number=INT')' description = (STRING)
+;
+  
+Comment:
+	'comment' ((requirements += Requirements)+  (comments=(STRING)?)) | comments=(STRING);
+
+
+
+@Override
+terminal ML_COMMENT:
+	'/*'->'*/' | '(*'->'*)';  
